@@ -22,11 +22,9 @@ const limits = {
 };
 
 const counter = {};
-
-// قائمة الوايت ليست (الموثوقين) - بنخزن فيها الآيدي
 let whitelist = [];
 
-// تعريف أوامر السلاش للتحكم بالوايت ليست
+// تعريف أمر السلاش
 const commands = [
     new SlashCommandBuilder()
         .setName('wl')
@@ -50,11 +48,13 @@ const commands = [
 client.on('ready', async () => {
     console.log(`🛡️ بوت الحماية شغال باسم: ${client.user.tag}`);
     
-    // تسجيل أوامر السلاش
+    // تحديث الأوامر فوراً وإجبارياً في ديسكورد
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
-        await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-        console.log('تم تسجيل أوامر الوايت ليست بنجاح!');
+        console.log('جاري تحديث أوامر السلاش إجبارياً...');
+        await rest.put(Routes.applicationCommands(client.user.id), { body: [] }); // تصفير القديم
+        await rest.put(Routes.applicationCommands(client.user.id), { body: commands }); // رفع الجديد
+        console.log('✅ تم تحديث أوامر السلاش بنجاح وستظهر الآن فوراً!');
     } catch (error) {
         console.error(error);
     }
@@ -65,7 +65,6 @@ client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
     if (interaction.commandName !== 'wl') return;
 
-    // حماية قوية: لو اللي كتب الأمر مش صاحب السيرفر الأساسي ارفضه فوراً
     if (interaction.user.id !== interaction.guild.ownerId) {
         return await interaction.reply({ content: '❌ هذا الأمر مخصص لـ **صاحب السيرفر الأساسي (Owner)** فقط لحماية السيرفر!', ephemeral: true });
     }
@@ -83,15 +82,15 @@ client.on('interactionCreate', async interaction => {
 
     if (subcommand === 'remove') {
         if (!whitelist.includes(targetUser.id)) {
-            return await interaction.reply({ content: `⚠️ الشخص ${targetUser} ليس في الوايت ليست أصلاً (هو في البلاك ليست حالياً).`, ephemeral: true });
+            return await interaction.reply({ content: `⚠️ الشخص ${targetUser} ليس في الوايت ليست أصلاً.`, ephemeral: true });
         }
         whitelist = whitelist.filter(id => id !== targetUser.id);
-        return await interaction.reply({ content: `🛡️ تم إزالة ${targetUser} من الوايت ليست وإرجاعه للبلاك ليست (تحت المراقبة الشديدة).` });
+        return await interaction.reply({ content: `🛡️ تم إزالة ${targetUser} من الوايت ليست وإرجاعه للبلاك ليست (تحت المراقبة).` });
     }
 
     if (subcommand === 'show') {
         if (whitelist.length === 0) {
-            return await interaction.reply({ content: '📜 قائمة الوايت ليست فارغة حالياً. جميع الإداريين تحت المراقبة (بلاك ليست).', ephemeral: true });
+            return await interaction.reply({ content: '📜 قائمة الوايت ليست فارغة حالياً. جميع الإداريين تحت المراقبة.', ephemeral: true });
         }
         const wlMentions = whitelist.map(id => `<@${id}>`).join('\n');
         const wlEmbed = new EmbedBuilder()
@@ -103,7 +102,7 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// 2. منع مسح الرومات من الإداريين (مع فحص الوايت ليست)
+// 2. منع مسح الرومات من الإداريين
 client.on('channelDelete', async (channel) => {
     const guild = channel.guild;
     const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelDelete }).catch(() => null);
@@ -112,7 +111,6 @@ client.on('channelDelete', async (channel) => {
     if (!entry) return;
     const executor = entry.executor;
 
-    // استثناء صاحب السيرفر، البوت، والأشخاص اللي في الوايت ليست
     if (executor.id === guild.ownerId || executor.id === client.user.id || whitelist.includes(executor.id)) return;
 
     if (!counter[executor.id]) counter[executor.id] = { bans: 0, channels: 0, time: Date.now() };
@@ -125,13 +123,13 @@ client.on('channelDelete', async (channel) => {
     if (counter[executor.id].channels >= limits.channelDelete) {
         const member = await guild.members.fetch(executor.id).catch(() => null);
         if (member) {
-            await member.roles.set([]).catch(() => null); // سحب الرتب فوراً لو خرب
-            console.log(`🚨 تم سحب رتب ${executor.tag} بسبب مسح الرومات مكثف!`);
+            await member.roles.set([]).catch(() => null);
+            console.log(`🚨 تم سحب رتب ${executor.tag} بسبب مسح الرومات!`);
         }
     }
 });
 
-// 3. منع التخريب بالباند (مع فحص الوايت ليست)
+// 3. منع التخريب بالباند
 client.on('guildBanAdd', async (ban) => {
     const guild = ban.guild;
     const auditLogs = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberBanAdd }).catch(() => null);
@@ -140,7 +138,6 @@ client.on('guildBanAdd', async (ban) => {
     if (!entry) return;
     const executor = entry.executor;
 
-    // استثناء صاحب السيرفر، البوت، والوايت ليست
     if (executor.id === guild.ownerId || executor.id === client.user.id || whitelist.includes(executor.id)) return;
 
     if (!counter[executor.id]) counter[executor.id] = { bans: 0, channels: 0, time: Date.now() };
@@ -153,7 +150,7 @@ client.on('guildBanAdd', async (ban) => {
     if (counter[executor.id].bans >= limits.banLimit) {
         const member = await guild.members.fetch(executor.id).catch(() => null);
         if (member) {
-            await member.roles.set([]).catch(() => null); // سحب الرتب
+            await member.roles.set([]).catch(() => null);
             console.log(`🚨 تم سحب رتب ${executor.tag} بسبب تبنيد أعضاء مكثف!`);
         }
     }
@@ -169,7 +166,6 @@ client.on('guildMemberAdd', async (member) => {
     if (!entry) return;
     const executor = entry.executor;
     
-    // لو اللي ضايف البوت مش صاحب السيرفر ومش وايت ليست، اطرد البوت فوراً
     if (executor.id !== guild.ownerId && !whitelist.includes(executor.id)) {
         await member.kick("ممنوع دخول بوتات غريبة!").catch(() => null);
     }
@@ -179,7 +175,6 @@ client.on('guildMemberAdd', async (member) => {
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
     if (message.content.includes('http://') || message.content.includes('https://') || message.content.includes('discord.gg/')) {
-        // لو وايت ليست سيبه ينشر عادي، لو مش وايت ليست ومش إداري امسح الرابط
         if (!whitelist.includes(message.author.id) && !message.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
             try {
                 await message.delete();
@@ -191,4 +186,4 @@ client.on('messageCreate', async (message) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-                                
+        
